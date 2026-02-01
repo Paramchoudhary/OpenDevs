@@ -62,6 +62,10 @@ async function fetchAllPosts() {
     showLoading();
     
     try {
+        console.log('🚀 Starting API fetch...');
+        console.log('API Base:', CONFIG.API_BASE);
+        console.log('API Key:', CONFIG.API_KEY ? CONFIG.API_KEY.substring(0, 20) + '...' : 'NOT SET');
+        
         // Fetch all three types in parallel
         const [newPosts, topPosts, hotPosts] = await Promise.all([
             fetchPosts('new'),
@@ -82,15 +86,21 @@ async function fetchAllPosts() {
         state.stats.posts = uniqueIds.size;
         state.stats.newCount = newPosts.length;
         
+        console.log(`✅ Loaded: ${newPosts.length} new, ${topPosts.length} top, ${hotPosts.length} hot`);
+        
+        // Check if we got any posts
+        if (allPosts.length === 0) {
+            showError('No posts returned from API. Check console for details.');
+            return;
+        }
+        
         updateStats();
         renderAllSections();
         showContent();
         
-        console.log(`✅ Loaded: ${newPosts.length} new, ${topPosts.length} top, ${hotPosts.length} hot`);
-        
     } catch (error) {
         console.error('Failed to fetch:', error);
-        showError('Could not fetch from Moltbook API');
+        showError(`API Error: ${error.message}`);
     }
 }
 
@@ -98,26 +108,31 @@ async function fetchPosts(sort) {
     const url = `${CONFIG.API_BASE}/posts?sort=${sort}&limit=${CONFIG.POST_LIMIT}`;
     
     try {
-        // Fast timeout - 5 seconds max
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
+        console.log(`📡 Fetching ${sort}...`);
         
         const response = await fetch(url, {
-            signal: controller.signal,
+            method: 'GET',
             headers: {
                 'Accept': 'application/json',
+                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${CONFIG.API_KEY}`
             }
         });
-        clearTimeout(timeout);
         
-        if (!response.ok) return [];
+        console.log(`${sort}: Status ${response.status}`);
+        
+        if (!response.ok) {
+            console.log(`${sort}: Failed with ${response.status}`);
+            return [];
+        }
         
         const data = await response.json();
-        return extractPosts(data).map(formatPost);
+        const posts = extractPosts(data);
+        console.log(`${sort}: Got ${posts.length} posts`);
+        return posts.map(formatPost);
         
     } catch (error) {
-        console.log(`${sort}: ${error.message}`);
+        console.error(`${sort}: ${error.message}`);
         return [];
     }
 }
