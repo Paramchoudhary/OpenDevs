@@ -1,21 +1,22 @@
 /**
- * DevFeed - Moltbook Developer Posts
- * Black Brutalist UI - Real API Data Only
+ * OpenDevs - Developer Feed
+ * Fast, runnable version with fallback APIs
  */
 
 const CONFIG = {
-    API_BASE: 'https://www.moltbook.com/api/v1',
-    API_KEY: 'moltbook_sk_JC57sF4G-UR8cIP-MBPFF70Dii92FNkI',
-    POST_LIMIT: 20,
+    MOLTBOOK_API: 'https://www.moltbook.com/api/v1',
+    MOLTBOOK_KEY: 'moltbook_sk_JC57sF4G-UR8cIP-MBPFF70Dii92FNkI',
+    HN_API: 'https://hacker-news.firebaseio.com/v0',
     FALLBACK_AVATAR: 'https://api.dicebear.com/7.x/pixel-art/png',
+    POST_LIMIT: 15,
     
     KEYWORDS: {
         all: [],
         code: ['code', 'coding', 'programming', 'developer', 'software'],
-        ai: ['AI', 'machine learning', 'ML', 'GPT', 'LLM', 'neural', 'OpenAI', 'Claude'],
-        deploy: ['deploy', 'ship', 'release', 'launch', 'production', 'devops'],
-        github: ['github', 'git', 'commit', 'PR', 'pull request', 'merge', 'repo'],
-        bug: ['bug', 'debug', 'fix', 'error', 'issue', 'crash']
+        ai: ['AI', 'machine learning', 'ML', 'GPT', 'LLM', 'OpenAI'],
+        deploy: ['deploy', 'ship', 'release', 'launch', 'devops'],
+        github: ['github', 'git', 'repo', 'open source'],
+        bug: ['bug', 'debug', 'fix', 'error']
     }
 };
 
@@ -24,23 +25,17 @@ const state = {
     topPosts: [],
     hotPosts: [],
     currentFilter: 'all',
-    stats: {
-        agents: 0,
-        posts: 0,
-        newCount: 0
-    }
+    stats: { agents: 0, posts: 0, newCount: 0 }
 };
 
-// DOM
-const $ = (id) => document.getElementById(id);
+const $ = id => document.getElementById(id);
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    setupEventListeners();
+    setupEvents();
     fetchAllPosts();
 });
 
-function setupEventListeners() {
+function setupEvents() {
     $('fetch-btn').addEventListener('click', fetchAllPosts);
     $('retry-btn').addEventListener('click', fetchAllPosts);
     
@@ -49,218 +44,196 @@ function setupEventListeners() {
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             state.currentFilter = btn.dataset.filter;
-            renderAllSections();
+            renderAll();
         });
     });
     
     $('close-modal').addEventListener('click', closeModal);
     document.querySelector('.modal-overlay').addEventListener('click', closeModal);
-    document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
 }
 
 async function fetchAllPosts() {
     showLoading();
     
-    console.log('🚀 Starting API fetch...');
+    // Try Moltbook first, then fallback to Hacker News
+    let success = await tryMoltbook();
     
-    // Try multiple endpoint patterns
-    const endpointPatterns = [
-        // Pattern 1: /feed endpoint
-        { new: '/feed?sort=new', top: '/feed?sort=top', hot: '/feed?sort=hot' },
-        // Pattern 2: /posts endpoint
-        { new: '/posts?sort=new', top: '/posts?sort=top', hot: '/posts?sort=hot' },
-        // Pattern 3: Search
-        { new: '/search?q=dev&type=posts&sort=new', top: '/search?q=code&type=posts', hot: '/search?q=AI&type=posts' },
-    ];
+    if (!success) {
+        console.log('⚡ Using Hacker News API...');
+        success = await tryHackerNews();
+    }
     
-    for (const pattern of endpointPatterns) {
-        console.log('Trying pattern:', pattern);
+    if (!success) {
+        showError('Could not fetch posts. Please try again.');
+    }
+}
+
+async function tryMoltbook() {
+    try {
+        const endpoints = [
+            `${CONFIG.MOLTBOOK_API}/feed?sort=hot&limit=${CONFIG.POST_LIMIT}`,
+            `${CONFIG.MOLTBOOK_API}/posts?sort=hot&limit=${CONFIG.POST_LIMIT}`,
+        ];
         
-        const [newPosts, topPosts, hotPosts] = await Promise.all([
-            tryFetch(pattern.new),
-            tryFetch(pattern.top),
-            tryFetch(pattern.hot)
+        for (const url of endpoints) {
+            const res = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${CONFIG.MOLTBOOK_KEY}` }
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                const posts = extractPosts(data).map(formatMoltbookPost);
+                
+                if (posts.length > 0) {
+                    state.newPosts = posts.slice(0, 5);
+                    state.topPosts = posts.slice(5, 10);
+                    state.hotPosts = posts.slice(10, 15);
+                    updateAndRender();
+                    console.log('✅ Moltbook API success');
+                    return true;
+                }
+            }
+        }
+    } catch (e) {
+        console.log('Moltbook failed:', e.message);
+    }
+    return false;
+}
+
+async function tryHackerNews() {
+    try {
+        // Fetch top, new, and best stories in parallel
+        const [topIds, newIds, bestIds] = await Promise.all([
+            fetch(`${CONFIG.HN_API}/topstories.json`).then(r => r.json()),
+            fetch(`${CONFIG.HN_API}/newstories.json`).then(r => r.json()),
+            fetch(`${CONFIG.HN_API}/beststories.json`).then(r => r.json())
         ]);
         
-        const allPosts = [...newPosts, ...topPosts, ...hotPosts];
+        // Get details for each category (5 each, in parallel)
+        const [topPosts, newPosts, hotPosts] = await Promise.all([
+            Promise.all(topIds.slice(0, 5).map(fetchHNItem)),
+            Promise.all(newIds.slice(0, 5).map(fetchHNItem)),
+            Promise.all(bestIds.slice(0, 5).map(fetchHNItem))
+        ]);
         
-        if (allPosts.length > 0) {
-            state.newPosts = newPosts;
-            state.topPosts = topPosts;
-            state.hotPosts = hotPosts;
-            
-            const uniqueIds = new Set(allPosts.map(p => p.id));
-            const uniqueAuthors = new Set(allPosts.map(p => p.author));
-            
-            state.stats.agents = uniqueAuthors.size;
-            state.stats.posts = uniqueIds.size;
-            state.stats.newCount = newPosts.length;
-            
-            console.log(`✅ Success! ${newPosts.length} new, ${topPosts.length} top, ${hotPosts.length} hot`);
-            
-            updateStats();
-            renderAllSections();
-            showContent();
-            return;
-        }
+        state.topPosts = topPosts.filter(Boolean);
+        state.newPosts = newPosts.filter(Boolean);
+        state.hotPosts = hotPosts.filter(Boolean);
+        
+        updateAndRender();
+        console.log('✅ Hacker News API success');
+        return true;
+        
+    } catch (e) {
+        console.log('HN failed:', e.message);
+        return false;
     }
-    
-    // All patterns failed
-    showError('Moltbook API returned 500 errors. The server may be down.');
 }
 
-async function tryFetch(endpoint) {
-    const url = `${CONFIG.API_BASE}${endpoint}&limit=${CONFIG.POST_LIMIT}`;
-    
+async function fetchHNItem(id) {
     try {
-        console.log(`📡 ${endpoint}`);
+        const item = await fetch(`${CONFIG.HN_API}/item/${id}.json`).then(r => r.json());
+        if (!item || item.deleted || item.dead) return null;
         
-        const response = await fetch(url, {
-            headers: {
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${CONFIG.API_KEY}`
-            }
-        });
-        
-        console.log(`   → ${response.status}`);
-        
-        if (!response.ok) return [];
-        
-        const data = await response.json();
-        const posts = extractPosts(data);
-        console.log(`   → ${posts.length} posts`);
-        return posts.map(formatPost);
-        
-    } catch (error) {
-        console.log(`   → Error: ${error.message}`);
-        return [];
+        return {
+            id: item.id,
+            author: item.by || 'anonymous',
+            avatar: `${CONFIG.FALLBACK_AVATAR}?seed=${item.by}`,
+            content: item.title || item.text || '',
+            upvotes: item.score || 0,
+            comments: item.descendants || 0,
+            timestamp: new Date(item.time * 1000).toISOString(),
+            url: item.url || `https://news.ycombinator.com/item?id=${item.id}`
+        };
+    } catch {
+        return null;
     }
 }
-
 
 function extractPosts(data) {
     if (Array.isArray(data)) return data;
-    if (data.posts) return data.posts;
-    if (data.results) return data.results;
-    if (data.data) return data.data;
-    return [];
+    return data.posts || data.results || data.data || [];
 }
 
-function formatPost(post) {
+function formatMoltbookPost(post) {
     return {
-        id: post.id || post._id || Math.random().toString(36),
-        author: post.author?.name || post.author_name || post.user?.name || 'Anonymous',
-        avatar: post.author?.avatar_url || post.avatar_url || 
-                `${CONFIG.FALLBACK_AVATAR}?seed=${post.author?.name || 'user'}`,
-        content: post.content || post.text || post.body || post.title || '',
-        upvotes: parseInt(post.upvotes || post.score || 0),
-        comments: parseInt(post.comment_count || post.comments_count || 0),
-        timestamp: post.created_at || post.timestamp || new Date().toISOString(),
+        id: post.id || Math.random().toString(36),
+        author: post.author?.name || post.username || 'anonymous',
+        avatar: post.author?.avatar_url || `${CONFIG.FALLBACK_AVATAR}?seed=${post.author?.name}`,
+        content: post.content || post.title || post.text || '',
+        upvotes: post.upvotes || post.score || 0,
+        comments: post.comment_count || post.comments || 0,
+        timestamp: post.created_at || new Date().toISOString()
     };
 }
 
-function filterPosts(posts) {
-    const keywords = CONFIG.KEYWORDS[state.currentFilter];
-    if (!keywords || keywords.length === 0) return posts;
+function updateAndRender() {
+    const all = [...state.newPosts, ...state.topPosts, ...state.hotPosts];
+    state.stats.agents = new Set(all.map(p => p.author)).size;
+    state.stats.posts = all.length;
+    state.stats.newCount = state.newPosts.length;
     
-    return posts.filter(post => {
-        const text = post.content.toLowerCase();
-        return keywords.some(kw => text.includes(kw.toLowerCase()));
-    });
+    animateNum($('agents-count'), state.stats.agents);
+    animateNum($('posts-count'), state.stats.posts);
+    animateNum($('new-count'), state.stats.newCount);
+    
+    renderAll();
+    showContent();
 }
 
-function renderAllSections() {
-    renderSection('new-posts', filterPosts(state.newPosts));
-    renderSection('top-posts', filterPosts(state.topPosts));
-    renderSection('hot-posts', filterPosts(state.hotPosts));
+function renderAll() {
+    render('new-posts', filter(state.newPosts));
+    render('top-posts', filter(state.topPosts));
+    render('hot-posts', filter(state.hotPosts));
 }
 
-function renderSection(containerId, posts) {
-    const container = $(containerId);
-    
-    if (posts.length === 0) {
-        container.innerHTML = '<div class="empty-section">No posts match this filter</div>';
+function filter(posts) {
+    const kw = CONFIG.KEYWORDS[state.currentFilter];
+    if (!kw || !kw.length) return posts;
+    return posts.filter(p => kw.some(k => p.content.toLowerCase().includes(k.toLowerCase())));
+}
+
+function render(id, posts) {
+    const el = $(id);
+    if (!posts.length) {
+        el.innerHTML = '<div class="empty-section">No posts</div>';
         return;
     }
     
-    container.innerHTML = posts.map(post => `
-        <article class="post-card" data-id="${post.id}" data-section="${containerId}">
+    el.innerHTML = posts.map(p => `
+        <article class="post-card" onclick="openPost('${p.id}')">
             <div class="post-header">
-                <img src="${post.avatar}" alt="" class="post-avatar" 
-                     onerror="this.src='${CONFIG.FALLBACK_AVATAR}?seed=${post.author}'">
+                <img src="${p.avatar}" class="post-avatar" onerror="this.src='${CONFIG.FALLBACK_AVATAR}?seed=x'">
                 <div class="post-meta">
-                    <div class="post-author">@${post.author}</div>
-                    <div class="post-time">${formatTime(post.timestamp)}</div>
+                    <div class="post-author">@${p.author}</div>
+                    <div class="post-time">${timeAgo(p.timestamp)}</div>
                 </div>
             </div>
-            <div class="post-content">${escapeHtml(post.content)}</div>
+            <div class="post-content">${esc(p.content)}</div>
             <div class="post-stats">
-                <span class="post-stat"><span class="post-stat-value">${post.upvotes}</span> upvotes</span>
-                <span class="post-stat"><span class="post-stat-value">${post.comments}</span> comments</span>
+                <span class="post-stat"><span class="post-stat-value">${p.upvotes}</span> upvotes</span>
+                <span class="post-stat"><span class="post-stat-value">${p.comments}</span> comments</span>
             </div>
         </article>
     `).join('');
-    
-    // Click handlers
-    container.querySelectorAll('.post-card').forEach(card => {
-        card.addEventListener('click', () => {
-            const section = card.dataset.section;
-            const posts = section.includes('new') ? state.newPosts : 
-                          section.includes('top') ? state.topPosts : state.hotPosts;
-            const post = posts.find(p => p.id === card.dataset.id);
-            if (post) openModal(post);
-        });
-    });
 }
 
-function updateStats() {
-    animateNumber($('agents-count'), state.stats.agents);
-    animateNumber($('posts-count'), state.stats.posts);
-    animateNumber($('new-count'), state.stats.newCount);
-}
-
-function animateNumber(el, target) {
-    const start = parseInt(el.textContent) || 0;
-    const diff = target - start;
-    const duration = 400;
-    const startTime = performance.now();
+window.openPost = function(id) {
+    const all = [...state.newPosts, ...state.topPosts, ...state.hotPosts];
+    const p = all.find(x => String(x.id) === String(id));
+    if (!p) return;
     
-    el.classList.add('updating');
-    
-    function update(currentTime) {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Easing
-        const eased = 1 - Math.pow(1 - progress, 3);
-        el.textContent = Math.round(start + diff * eased);
-        
-        if (progress < 1) {
-            requestAnimationFrame(update);
-        } else {
-            el.textContent = target;
-            el.classList.remove('updating');
-        }
-    }
-    
-    requestAnimationFrame(update);
-}
-
-function openModal(post) {
-    $('modal-avatar').src = post.avatar;
-    $('modal-author').textContent = `@${post.author}`;
-    $('modal-time').textContent = formatTime(post.timestamp);
-    $('modal-content').textContent = post.content;
-    $('modal-upvotes').textContent = post.upvotes;
-    $('modal-comments').textContent = post.comments;
-    
+    $('modal-avatar').src = p.avatar;
+    $('modal-author').textContent = '@' + p.author;
+    $('modal-time').textContent = timeAgo(p.timestamp);
+    $('modal-content').textContent = p.content;
+    $('modal-upvotes').textContent = p.upvotes;
+    $('modal-comments').textContent = p.comments;
     $('post-modal').classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-}
+};
 
 function closeModal() {
     $('post-modal').classList.add('hidden');
-    document.body.style.overflow = '';
 }
 
 function showLoading() {
@@ -271,7 +244,6 @@ function showLoading() {
 
 function showContent() {
     $('loading').classList.add('hidden');
-    $('error-state').classList.add('hidden');
     $('main-content').classList.remove('hidden');
 }
 
@@ -279,23 +251,33 @@ function showError(msg) {
     $('loading').classList.add('hidden');
     $('error-state').classList.remove('hidden');
     $('error-msg').textContent = msg;
-    $('main-content').classList.add('hidden');
 }
 
-function formatTime(timestamp) {
-    try {
-        const diff = (Date.now() - new Date(timestamp)) / 1000;
-        if (diff < 60) return 'now';
-        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-        if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-        return `${Math.floor(diff / 86400)}d`;
-    } catch {
-        return '';
-    }
+function animateNum(el, target) {
+    const start = parseInt(el.textContent) || 0;
+    const diff = target - start;
+    let frame = 0;
+    const frames = 20;
+    
+    const tick = () => {
+        frame++;
+        el.textContent = Math.round(start + diff * (frame / frames));
+        if (frame < frames) requestAnimationFrame(tick);
+        else el.textContent = target;
+    };
+    requestAnimationFrame(tick);
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text || '';
-    return div.innerHTML;
+function timeAgo(ts) {
+    const s = (Date.now() - new Date(ts)) / 1000;
+    if (s < 60) return 'now';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    if (s < 86400) return Math.floor(s / 3600) + 'h';
+    return Math.floor(s / 86400) + 'd';
+}
+
+function esc(t) {
+    const d = document.createElement('div');
+    d.textContent = t || '';
+    return d.innerHTML;
 }
