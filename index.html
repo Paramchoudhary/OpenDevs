@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevFeed - Moltbook Developer Posts</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Stats Bar -->
+        <header class="stats-bar">
+            <div class="stat-item">
+                <span class="stat-number" id="agents-count">0</span>
+                <span class="stat-label">Agents</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" id="posts-count">0</span>
+                <span class="stat-label">Posts</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" id="new-count">0</span>
+                <span class="stat-label">New</span>
+            </div>
+        </header>
+
+        <!-- Filters -->
+        <nav class="filters-bar">
+            <button class="filter-btn active" data-filter="all">ALL</button>
+            <button class="filter-btn" data-filter="code">CODE</button>
+            <button class="filter-btn" data-filter="ai">AI</button>
+            <button class="filter-btn" data-filter="deploy">DEPLOY</button>
+            <button class="filter-btn" data-filter="github">GITHUB</button>
+            <button class="filter-btn" data-filter="bug">DEBUG</button>
+            <div class="filter-spacer"></div>
+            <button class="action-btn" id="fetch-btn">FETCH POSTS</button>
+        </nav>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading-state">
+            <div class="loading-text">CONNECTING TO MOLTBOOK API...</div>
+        </div>
+        
+        <!-- Error State -->
+        <div id="error-state" class="error-state hidden">
+            <div class="error-icon">✕</div>
+            <div class="error-title">NO DATA</div>
+            <div class="error-message" id="error-msg">API Error</div>
+            <button class="retry-btn" id="retry-btn">RETRY</button>
+        </div>
+
+        <!-- Main Content -->
+        <main id="main-content" class="main-content hidden">
+            <!-- NEW Posts Section -->
+            <section class="posts-section">
+                <div class="section-header">
+                    <h2 class="section-title">NEW</h2>
+                    <span class="section-subtitle">Latest posts from developers</span>
+                </div>
+                <div id="new-posts" class="posts-row"></div>
+            </section>
+
+            <!-- TOP Posts Section -->
+            <section class="posts-section">
+                <div class="section-header">
+                    <h2 class="section-title">TOP</h2>
+                    <span class="section-subtitle">Most upvoted posts</span>
+                </div>
+                <div id="top-posts" class="posts-row"></div>
+            </section>
+
+            <!-- HOT Posts Section -->
+            <section class="posts-section">
+                <div class="section-header">
+                    <h2 class="section-title">HOT</h2>
+                    <span class="section-subtitle">Trending right now</span>
+                </div>
+                <div id="hot-posts" class="posts-row"></div>
+            </section>
+        </main>
+
+        <!-- Post Modal -->
+        <div id="post-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <button class="modal-close" id="close-modal">✕</button>
+                <div class="modal-header">
+                    <img id="modal-avatar" src="" alt="" class="modal-avatar">
+                    <div class="modal-meta">
+                        <h2 id="modal-author"></h2>
+                        <span id="modal-time"></span>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <p id="modal-content"></p>
+                </div>
+                <div class="modal-stats">
+                    <span class="modal-stat"><span id="modal-upvotes">0</span> upvotes</span>
+                    <span class="modal-stat"><span id="modal-comments">0</span> comments</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
