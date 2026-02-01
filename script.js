@@ -61,81 +61,82 @@ function setupEventListeners() {
 async function fetchAllPosts() {
     showLoading();
     
-    try {
-        console.log('🚀 Starting API fetch...');
-        console.log('API Base:', CONFIG.API_BASE);
-        console.log('API Key:', CONFIG.API_KEY ? CONFIG.API_KEY.substring(0, 20) + '...' : 'NOT SET');
+    console.log('🚀 Starting API fetch...');
+    
+    // Try multiple endpoint patterns
+    const endpointPatterns = [
+        // Pattern 1: /feed endpoint
+        { new: '/feed?sort=new', top: '/feed?sort=top', hot: '/feed?sort=hot' },
+        // Pattern 2: /posts endpoint
+        { new: '/posts?sort=new', top: '/posts?sort=top', hot: '/posts?sort=hot' },
+        // Pattern 3: Search
+        { new: '/search?q=dev&type=posts&sort=new', top: '/search?q=code&type=posts', hot: '/search?q=AI&type=posts' },
+    ];
+    
+    for (const pattern of endpointPatterns) {
+        console.log('Trying pattern:', pattern);
         
-        // Fetch all three types in parallel
         const [newPosts, topPosts, hotPosts] = await Promise.all([
-            fetchPosts('new'),
-            fetchPosts('top'),
-            fetchPosts('hot')
+            tryFetch(pattern.new),
+            tryFetch(pattern.top),
+            tryFetch(pattern.hot)
         ]);
         
-        state.newPosts = newPosts;
-        state.topPosts = topPosts;
-        state.hotPosts = hotPosts;
-        
-        // Calculate stats
         const allPosts = [...newPosts, ...topPosts, ...hotPosts];
-        const uniqueIds = new Set(allPosts.map(p => p.id));
-        const uniqueAuthors = new Set(allPosts.map(p => p.author));
         
-        state.stats.agents = uniqueAuthors.size;
-        state.stats.posts = uniqueIds.size;
-        state.stats.newCount = newPosts.length;
-        
-        console.log(`✅ Loaded: ${newPosts.length} new, ${topPosts.length} top, ${hotPosts.length} hot`);
-        
-        // Check if we got any posts
-        if (allPosts.length === 0) {
-            showError('No posts returned from API. Check console for details.');
+        if (allPosts.length > 0) {
+            state.newPosts = newPosts;
+            state.topPosts = topPosts;
+            state.hotPosts = hotPosts;
+            
+            const uniqueIds = new Set(allPosts.map(p => p.id));
+            const uniqueAuthors = new Set(allPosts.map(p => p.author));
+            
+            state.stats.agents = uniqueAuthors.size;
+            state.stats.posts = uniqueIds.size;
+            state.stats.newCount = newPosts.length;
+            
+            console.log(`✅ Success! ${newPosts.length} new, ${topPosts.length} top, ${hotPosts.length} hot`);
+            
+            updateStats();
+            renderAllSections();
+            showContent();
             return;
         }
-        
-        updateStats();
-        renderAllSections();
-        showContent();
-        
-    } catch (error) {
-        console.error('Failed to fetch:', error);
-        showError(`API Error: ${error.message}`);
     }
+    
+    // All patterns failed
+    showError('Moltbook API returned 500 errors. The server may be down.');
 }
 
-async function fetchPosts(sort) {
-    const url = `${CONFIG.API_BASE}/posts?sort=${sort}&limit=${CONFIG.POST_LIMIT}`;
+async function tryFetch(endpoint) {
+    const url = `${CONFIG.API_BASE}${endpoint}&limit=${CONFIG.POST_LIMIT}`;
     
     try {
-        console.log(`📡 Fetching ${sort}...`);
+        console.log(`📡 ${endpoint}`);
         
         const response = await fetch(url, {
-            method: 'GET',
             headers: {
                 'Accept': 'application/json',
-                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${CONFIG.API_KEY}`
             }
         });
         
-        console.log(`${sort}: Status ${response.status}`);
+        console.log(`   → ${response.status}`);
         
-        if (!response.ok) {
-            console.log(`${sort}: Failed with ${response.status}`);
-            return [];
-        }
+        if (!response.ok) return [];
         
         const data = await response.json();
         const posts = extractPosts(data);
-        console.log(`${sort}: Got ${posts.length} posts`);
+        console.log(`   → ${posts.length} posts`);
         return posts.map(formatPost);
         
     } catch (error) {
-        console.error(`${sort}: ${error.message}`);
+        console.log(`   → Error: ${error.message}`);
         return [];
     }
 }
+
 
 function extractPosts(data) {
     if (Array.isArray(data)) return data;
