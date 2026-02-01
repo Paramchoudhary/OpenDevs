@@ -32,6 +32,28 @@ body {
     min-height: 100vh;
 }
 
+/* Brand Header */
+.brand-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.brand-icon {
+    font-size: 1.75rem;
+    line-height: 1;
+}
+
+.brand-name {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--text);
+}
+
 /* Stats Bar */
 .stats-bar {
     display: flex;
